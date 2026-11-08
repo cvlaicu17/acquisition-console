@@ -55,7 +55,7 @@ function render() {
     if (s.pico) sens.push(['Pico link', s.pico, s.pico === 'ok' ? 'ok' : 'er']);
     if (s.gnss) sens.push(['GNSS', s.gnss.fix >= 2 ? `fix ${s.gnss.fix}, ${s.gnss.sats} sats` : 'no fix', s.gnss.fix >= 2 ? 'ok' : 'wr']);
   }
-  rows('sens', sens.length ? sens : [['—', 'no data']]);
+  rows('sens', sens.length ? sens : [['—', s && client && s.state === 'idle' ? 'recorder idle' : 'no data']]);
 
   const h = [];
   if (s && client) {
@@ -69,7 +69,8 @@ function render() {
   rows('host2', h.length ? h : [['—', 'no data']]);
 }
 
-function onStatus(s) { status = s; lastStatusAt = Date.now(); render(); }
+let nStatus = 0;
+function onStatus(s) { if (nStatus++ === 0) log('first status received (state ' + s.state + ')'); status = s; lastStatusAt = Date.now(); render(); }
 
 function fillPresets(list) {
   const sel = $('preset'), keep = sel.value; sel.textContent = '';
@@ -79,7 +80,7 @@ function fillPresets(list) {
 
 // ---- connection ---------------------------------------------------------------------------------
 async function attach(link, name) {
-  client = new Client(link, () => $('key').value);
+  client = new Client(link, () => $('key').value.trim());   // phone keyboards like to append a space
   client.on('status', onStatus);
   client.on('event', (e) => {
     if (e.ev === 'hello') { fillPresets(e.presets || []); $('host').textContent = `${e.name || ''}  (${e.host || ''})  fw ${e.fw || '?'}`; $('conn').textContent = demo ? 'demo' : (e.name || 'connected'); log('hello from ' + (e.host || '?')); }
@@ -101,7 +102,7 @@ function releaseWake() { try { wakeLock?.release(); } catch { /* ignore */ } wak
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && client) requestWake(); });
 
 $('btnConnect').onclick = async () => {
-  store.set(KEY_STORE, $('key').value);
+  store.set(KEY_STORE, $('key').value.trim());
   try { const link = await connectBle(); await attach(link, link.name); }
   catch (e) { if (e.name !== 'NotFoundError') log('connect failed: ' + e.message); setMsg(e.message, true); }
 };
@@ -146,7 +147,7 @@ const HOLD_MS = 800;
 
 // ---- boot ---------------------------------------------------------------------------------------
 $('key').value = store.get(KEY_STORE);
-$('key').addEventListener('change', () => store.set(KEY_STORE, $('key').value));
+$('key').addEventListener('change', () => { $('key').value = $('key').value.trim(); store.set(KEY_STORE, $('key').value); });
 $('unsupported').hidden = webBluetoothSupported();
 $('btnConnect').disabled = !webBluetoothSupported();
 setInterval(render, 500); // keeps the stale banner honest when no status arrives to trigger a render
