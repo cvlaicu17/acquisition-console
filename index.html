@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12151a">
+<title>LEE Console</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>LEE <span class="dim">console</span></h1>
+  <span id="conn" class="pill off">disconnected</span>
+</header>
+
+<main>
+  <section id="unsupported" class="card warn" hidden>
+    <b>Web Bluetooth is not available in this browser.</b>
+    <p>Use <b>Chrome on Android</b> (or desktop Chrome/Edge). iPhone Safari and Chrome cannot do Web Bluetooth;
+       on iOS install the free <i>Bluefy</i> browser and open this page there.</p>
+  </section>
+
+  <section class="card" id="connectCard">
+    <div class="row">
+      <button id="btnConnect" class="primary">Connect to Jetson</button>
+      <button id="btnDisconnect" hidden>Disconnect</button>
+      <button id="btnDemo" class="ghost">Demo</button>
+    </div>
+    <label class="field">Passphrase (kept on this phone only)
+      <input id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="set on the Jetson gateway">
+    </label>
+    <div id="host" class="dim small"></div>
+  </section>
+
+  <section class="card" id="stateCard">
+    <div id="stale" class="stale" hidden>NO DATA – the screen below may be out of date</div>
+    <div class="statehead">
+      <span id="state" class="state s-none">—</span>
+      <span id="elapsed" class="elapsed">--:--</span>
+    </div>
+    <div id="bag" class="dim small mono">&nbsp;</div>
+    <div id="errline" class="bad small" hidden></div>
+    <div id="warns"></div>
+  </section>
+
+  <section class="card" id="ctlCard">
+    <div class="row two">
+      <label class="field">Preset <select id="preset"></select></label>
+      <label class="field">Duration
+        <select id="dur">
+          <option value="0">until stopped</option><option value="60">1 min</option><option value="300">5 min</option>
+          <option value="600">10 min</option><option value="1800">30 min</option>
+        </select></label>
+    </div>
+    <div class="row two">
+      <button id="btnStart" class="go" disabled>Start</button>
+      <button id="btnStop" class="stop" disabled><span class="fill"></span><span class="lbl">Hold to stop</span></button>
+    </div>
+    <div id="msg" class="small dim" aria-live="polite">&nbsp;</div>
+  </section>
+
+  <section class="card">
+    <h2>Sensors</h2>
+    <table id="sens"><tbody></tbody></table>
+  </section>
+
+  <section class="card">
+    <h2>Jetson</h2>
+    <table id="host2"><tbody></tbody></table>
+    <div class="row"><button id="btnTime" class="ghost small" hidden>Set Jetson clock from phone</button></div>
+  </section>
+
+  <section class="card" id="demoCard" hidden>
+    <h2>Demo controls</h2>
+    <div class="row wrap">
+      <button class="ghost small" id="dWarn">Inject warning</button>
+      <button class="ghost small" id="dStall">Stall status</button>
+      <button class="ghost small" id="dDrop">Drop link</button>
+    </div>
+    <div class="dim small">Simulated gateway speaking the real protocol. Passphrase: <code>demo-passphrase</code> (filled in).</div>
+  </section>
+
+  <section class="card">
+    <h2>Log</h2>
+    <pre id="log" class="mono small"></pre>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
