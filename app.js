@@ -11,6 +11,7 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
 };
 
+let keyOverride = null; // tests only
 let client = null, sim = null, status = null, lastStatusAt = 0, demo = false, busy = false, wakeLock = null;
 
 // ---- small helpers ----------------------------------------------------------------------------
@@ -80,7 +81,7 @@ function fillPresets(list) {
 
 // ---- connection ---------------------------------------------------------------------------------
 async function attach(link, name) {
-  client = new Client(link, () => $('key').value.trim());   // phone keyboards like to append a space
+  client = new Client(link, () => keyOverride ?? (demo ? SIM_PASSPHRASE : $('key').value.trim()));   // trim: phone keyboards append a space; Demo never touches the real passphrase box
   client.on('status', onStatus);
   client.on('event', (e) => {
     if (e.ev === 'hello') { fillPresets(e.presets || []); $('host').textContent = `${e.name || ''}  (${e.host || ''})  fw ${e.fw || '?'}`; $('conn').textContent = demo ? 'demo' : (e.name || 'connected'); log('hello from ' + (e.host || '?')); }
@@ -109,7 +110,7 @@ $('btnConnect').onclick = async () => {
 $('btnDisconnect').onclick = () => { client?.close(); };
 $('btnDemo').onclick = () => startDemo();
 function startDemo() {
-  demo = true; $('key').value = SIM_PASSPHRASE; sim = new SimLink({ tickMs: Number(q.get('tick')) || 1000 });
+  demo = true; sim = new SimLink({ tickMs: Number(q.get('tick')) || 1000 });
   $('demoCard').hidden = false; $('unsupported').hidden = true; return attach(sim, 'simulator');
 }
 $('dWarn').onclick = () => sim?.injectWarning();
@@ -122,7 +123,7 @@ async function send(cmd) {
   try {
     const r = await client.command(cmd);
     if (r.ok) { setMsg(`${cmd.c}: accepted`); log(`${cmd.c} ok`); }
-    else { setMsg(`${cmd.c} refused: ${r.err}`, true); log(`${cmd.c} refused: ${r.err}`); }
+    else { setMsg(`${cmd.c} refused: ${r.err}` + (r.err === 'auth' ? ' (wrong passphrase: retype it above and reconnect)' : ''), true); log(`${cmd.c} refused: ${r.err}`); }
     return r;
   } catch (e) { setMsg(`${cmd.c} failed: ${e.message}`, true); log(`${cmd.c} failed: ${e.message}`); }
   finally { busy = false; render(); }
@@ -168,8 +169,8 @@ async function selftest() {
   out(status?.state === 'recording' && status.cam.length === 2, 'recording with 2 cameras');
   const r2 = await send({ c: 'start', preset: 'stereo40', sec: 0 });
   out(r2?.ok === false && r2.err === 'busy', 'second start refused (busy)');
-  const old = $('key').value; $('key').value = 'wrong';
-  const r3 = await send({ c: 'stop' }); $('key').value = old;
+  keyOverride = 'wrong';
+  const r3 = await send({ c: 'stop' }); keyOverride = null;
   out(r3?.ok === false && r3.err === 'auth', 'wrong passphrase refused');
   const r4 = await send({ c: 'stop' });
   out(r4?.ok === true, 'stop accepted');
