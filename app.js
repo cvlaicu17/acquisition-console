@@ -82,7 +82,7 @@ async function attach(link, name) {
   client = new Client(link, () => $('key').value);
   client.on('status', onStatus);
   client.on('event', (e) => {
-    if (e.ev === 'hello') { fillPresets(e.presets || []); $('host').textContent = `${e.host || ''}  fw ${e.fw || '?'}`; log('hello from ' + (e.host || '?')); }
+    if (e.ev === 'hello') { fillPresets(e.presets || []); $('host').textContent = `${e.name || ''}  (${e.host || ''})  fw ${e.fw || '?'}`; $('conn').textContent = demo ? 'demo' : (e.name || 'connected'); log('hello from ' + (e.host || '?')); }
     else if (e.ev) log('event ' + JSON.stringify(e));
   });
   client.on('disconnect', () => { log('link lost'); detach(); });
