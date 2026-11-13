@@ -33,3 +33,5 @@ table{width:100%;border-collapse:collapse}td{padding:5px 0;border-bottom:1px sol
 td:last-child{text-align:right;font-variant-numeric:tabular-nums}
 .ok{color:var(--ok)}.wr{color:var(--warn)}.er{color:var(--bad)}
 pre{margin:0;max-height:180px;overflow:auto;white-space:pre-wrap;color:var(--dim)}
+.netrow{display:block;width:100%;text-align:left;margin:0 0 6px;font-family:ui-monospace,monospace}
+.netrow.off{opacity:.5}

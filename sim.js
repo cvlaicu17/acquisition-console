@@ -17,7 +17,7 @@ export class SimLink {
       { id: 'stereo40f8', name: 'Stereo 40 Hz, fixed 8 ms', maxSec: 3600 },
     ];
     this.timer = setInterval(() => this.tick(), tickMs);
-    setTimeout(() => this.event({ ev: 'hello', v: 1, host: 'sim-jetson', fw: 'sim', presets: this.presets }), 50);
+    setTimeout(() => this.event({ ev: 'hello', v: 1, host: 'sim-jetson', fw: 'sim', net: [['wlP1p1s0', '192.168.68.159', 1], ['tailscale0', '100.93.241.45', 1], ['l4tbr0', '192.168.55.1', 0]], presets: this.presets }), 50);
     setTimeout(() => this.tick(), 20);
   }
   // ---- link interface ----
@@ -88,6 +88,7 @@ export class SimLink {
       pico: 'ok', gnss: { fix: 3, sats: 11 },
       disk: { free_gb: 412.3 - el * 0.0112, mbs: rec ? 86.4 : 0 },
       temp: { cpu: rec ? 58 : 41, nvme: rec ? 52 : 38 },
+      net: [['wlP1p1s0', '192.168.68.159', 1], ['tailscale0', '100.93.241.45', 1], ['l4tbr0', '192.168.55.1', 0]],
       warn: this.warn.slice(), err: '',
     };
   }

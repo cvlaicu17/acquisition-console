@@ -29,6 +29,32 @@ function rows(tableId, list) {
     const td = tr.insertCell(); td.textContent = v; if (c) td.className = c;
   }
 }
+// Jetson addresses: live while connected, the last known set (dimmed, with its age) otherwise.
+const NET_STORE = 'lee.lastnet';
+function loadLastNet() { try { return JSON.parse(store.get(NET_STORE)) || null; } catch { return null; } }
+let lastNet = loadLastNet();   // {host, at, net}
+function rememberNet(net, host) {
+  if (demo || !Array.isArray(net) || !net.length) return;
+  const key = JSON.stringify(net);
+  if (lastNet && JSON.stringify(lastNet.net) === key && Date.now() - lastNet.at < 60000) return;
+  lastNet = { host, at: Date.now(), net }; store.set(NET_STORE, JSON.stringify(lastNet));
+}
+function renderNet(live) {
+  const box = $('net'); box.textContent = '';
+  const src = live ? { net: status && status.net, host: status && status.host } : lastNet;
+  const list = (src && src.net) || [];
+  $('netAge').textContent = live ? '' : lastNet ? `(last seen ${new Date(lastNet.at).toLocaleString()})` : '';
+  if (!list.length) { box.textContent = live ? 'no address reported' : 'not connected yet'; return; }
+  for (const [ifn, ip, up] of list) {
+    const b = document.createElement('button'); b.className = 'ghost small netrow' + (live && up ? '' : ' off');
+    b.textContent = `${ifn}  ${ip}${up ? '' : '  (no link)'}`;
+    b.onclick = async () => {
+      const cmd = `ssh jetson@${ip}`;
+      try { await navigator.clipboard.writeText(cmd); setMsg('copied: ' + cmd); } catch { setMsg(cmd); }
+    };
+    box.append(b);
+  }
+}
 const isStale = () => !client || Date.now() - lastStatusAt > STALE_AFTER_MS;
 
 // ---- rendering ----------------------------------------------------------------------------------
@@ -68,10 +94,11 @@ function render() {
     $('btnTime').hidden = !(Math.abs(skew) > 5 && s.state === 'idle');
   } else $('btnTime').hidden = true;
   rows('host2', h.length ? h : [['—', 'no data']]);
+  renderNet(!!(s && client && s.net));
 }
 
 let nStatus = 0;
-function onStatus(s) { if (nStatus++ === 0) log('first status received (state ' + s.state + ')'); status = s; lastStatusAt = Date.now(); render(); }
+function onStatus(s) { rememberNet(s.net, $('host').textContent); if (nStatus++ === 0) log('first status received (state ' + s.state + ')'); status = s; lastStatusAt = Date.now(); render(); }
 
 function fillPresets(list) {
   const sel = $('preset'), keep = sel.value; sel.textContent = '';
@@ -84,7 +111,7 @@ async function attach(link, name) {
   client = new Client(link, () => keyOverride ?? (demo ? SIM_PASSPHRASE : $('key').value.trim()));   // trim: phone keyboards append a space; Demo never touches the real passphrase box
   client.on('status', onStatus);
   client.on('event', (e) => {
-    if (e.ev === 'hello') { fillPresets(e.presets || []); $('host').textContent = `${e.name || ''}  (${e.host || ''})  fw ${e.fw || '?'}`; $('conn').textContent = demo ? 'demo' : (e.name || 'connected'); log('hello from ' + (e.host || '?')); }
+    if (e.ev === 'hello') { fillPresets(e.presets || []); $('host').textContent = `${e.name || ''}  (${e.host || ''})  fw ${e.fw || '?'}`; $('conn').textContent = demo ? 'demo' : (e.name || 'connected'); log('hello from ' + (e.host || '?') + (e.net ? ' ' + e.net.filter((n) => n[2]).map((n) => n[1]).join(' ') : '')); }
     else if (e.ev) log('event ' + JSON.stringify(e));
   });
   client.on('disconnect', () => { log('link lost'); detach(); });
