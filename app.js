@@ -10,7 +10,7 @@ const HTTP_MODE = document.querySelector('meta[name="lee-transport"]')?.content 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = 'b394577';   // publish_pages.sh writes the source commit here
+const BUILD = 'babdbdc';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -21,6 +21,7 @@ let bags = null;         // last `bags` event / reply from the gateway: {bags: [
 let nets = null;         // last wifi_scan result: [[ssid, signal, security, known, active]]
 let hotspotPw = '';      // shown while the Jetson runs its hotspot (arrives sealed)
 let joining = '';        // ssid whose password box is open
+let bagsRetry = 0;       // asks for the bag list while none arrived
 let client = null, sim = null, status = null, lastStatusAt = 0, demo = false, busy = false, wakeLock = null;
 
 // ---- small helpers ----------------------------------------------------------------------------
@@ -297,6 +298,9 @@ async function attach(link, name) {
   client.on('disconnect', () => { log(userDisconnect ? 'disconnected' : 'link lost'); userDisconnect = false; detach(); });
   $('conn').textContent = demo ? 'demo' : 'connected'; $('conn').className = 'pill ' + (demo ? 'demo' : 'on');
   log('connected to ' + name);
+  // The list comes as an event after connecting; if that one notification was lost, ask for it.
+  const askBags = () => { if (client && !bags && !busy && $('key').value.trim()) client.command({ c: 'bags' }).then((r) => { if (r?.ok) { bags = r; renderBags(); } }).catch(() => {}); };
+  clearInterval(bagsRetry); setTimeout(askBags, 3000); bagsRetry = setInterval(() => { if (!client) clearInterval(bagsRetry); else askBags(); }, 10000);
   requestWake();
   render();
 }
