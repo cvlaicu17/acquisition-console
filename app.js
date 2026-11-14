@@ -6,6 +6,7 @@ import { SimLink, SIM_PASSPHRASE } from './sim.js';
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
+const BUILD = 'eb39117';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -180,6 +181,7 @@ $('key').addEventListener('change', () => { $('key').value = $('key').value.trim
 $('unsupported').hidden = webBluetoothSupported();
 $('btnConnect').disabled = !webBluetoothSupported();
 setInterval(render, 500); // keeps the stale banner honest when no status arrives to trigger a render
+$('build').textContent = BUILD; log('console build ' + BUILD);
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 render();
 
