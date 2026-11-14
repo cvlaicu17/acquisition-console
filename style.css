@@ -4,7 +4,8 @@
 --text:#14181d;--dim:#5b6675;--accent:#0a74c9;--ok:#13873a;--warn:#a86e00;--bad:#c4372c}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-padding:0 max(16px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px,env(safe-area-inset-left))}
+padding:env(safe-area-inset-top) max(16px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px,env(safe-area-inset-left))}
+/* top inset: with viewport-fit=cover the header sat under the iPhone status bar / notch */
 header{display:flex;justify-content:space-between;align-items:center;padding:12px 0;max-width:640px;margin:0 auto}
 h1{font-size:18px;margin:0}h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:0 0 8px}
 main{max-width:640px;margin:0 auto;display:grid;gap:12px;padding-bottom:32px}

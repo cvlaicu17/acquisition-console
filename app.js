@@ -6,7 +6,7 @@ import { SimLink, SIM_PASSPHRASE } from './sim.js';
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = 'eb39117';   // publish_pages.sh writes the source commit here
+const BUILD = '658557d';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
