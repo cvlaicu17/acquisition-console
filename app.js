@@ -6,16 +6,51 @@ import { SimLink, SIM_PASSPHRASE } from './sim.js';
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = '658557d';   // publish_pages.sh writes the source commit here
+const BUILD = '1033a31';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
 };
 
 let keyOverride = null; // tests only
+let bags = null;         // last `bags` event / reply from the gateway: {bags: [[name, mb, state, pct, note]], more, free_gb}
 let client = null, sim = null, status = null, lastStatusAt = 0, demo = false, busy = false, wakeLock = null;
 
 // ---- small helpers ----------------------------------------------------------------------------
+// ---- bags ----------------------------------------------------------------------------------------
+const gb = (mb) => (mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : mb + ' MB');
+const BAG_STATE = {
+  local: ['on the Jetson only', ''], synced: ['in the vault ✓', 'ok'], syncing: ['syncing', 'wr'],
+  recording: ['recording', 'wr'], split: ['split recording: cannot sync', 'dim'], unfinished: ['unfinished: cannot sync', 'er'],
+};
+function renderBags() {
+  const box = $('bags'); box.textContent = '';
+  $('bagsInfo').textContent = bags ? `${bags.bags.length + (bags.more || 0)} · ${Number(bags.free_gb).toFixed(0)} GB free` : '';
+  if (!client || !bags) { box.textContent = client ? 'loading…' : 'connect to see the bags'; return; }
+  if (!bags.bags.length) { box.textContent = 'no bags in ~/bags'; return; }
+  const idle = status && status.state === 'idle', syncing = bags.bags.some((b) => b[2] === 'syncing');
+  for (const [name, mb, st, pct, note] of bags.bags) {
+    const row = document.createElement('div'); row.className = 'bagrow';
+    const info = document.createElement('div'); info.className = 'bi';
+    const n = document.createElement('div'); n.className = 'bn'; n.textContent = name;
+    const [label, c] = BAG_STATE[st] || [st, ''];
+    const s = document.createElement('div'); s.className = 'bs';
+    const what = st === 'syncing' ? `${label} ${note || ''} ${pct ? pct + '%' : ''}`.replace(/\s+/g, ' ').trim() : label;
+    s.innerHTML = ''; s.append(gb(mb) + ' · ');
+    const sp = document.createElement('span'); sp.className = c; sp.textContent = what; s.append(sp);
+    if (note && st !== 'syncing') { const e = document.createElement('span'); e.className = st === 'local' ? 'er' : 'dim'; e.textContent = ' · ' + note; s.append(e); }
+    info.append(n, s);
+    const bSync = document.createElement('button'); bSync.className = 'ghost'; bSync.textContent = 'Sync';
+    bSync.disabled = !(st === 'local' && idle && !syncing && !busy);
+    bSync.onclick = () => send({ c: 'sync', bag: name });
+    const bDel = document.createElement('button'); bDel.className = 'ghost'; bDel.textContent = 'Delete';
+    bDel.disabled = !(st === 'synced' && !busy);
+    bDel.onclick = () => { if (confirm(`Delete ${name} (${gb(mb)}) from the Jetson?\n\nThe vault keeps its copy.`)) send({ c: 'delete', bag: name }, 60000); };
+    row.append(info, bSync, bDel); box.append(row);
+  }
+  if (bags.more) { const m = document.createElement('div'); m.className = 'dim small'; m.textContent = `+ ${bags.more} older`; box.append(m); }
+}
+
 function log(s) {
   const el = $('log'), t = new Date().toLocaleTimeString();
   el.textContent = `${t}  ${s}\n` + el.textContent.split('\n').slice(0, 59).join('\n');
@@ -99,7 +134,12 @@ function render() {
 }
 
 let nStatus = 0;
-function onStatus(s) { rememberNet(s.net, $('host').textContent); if (nStatus++ === 0) log('first status received (state ' + s.state + ')'); status = s; lastStatusAt = Date.now(); render(); }
+function onStatus(s) {
+  rememberNet(s.net, $('host').textContent); if (nStatus++ === 0) log('first status received (state ' + s.state + ')');
+  const changed = !status || status.state !== s.state;
+  status = s; lastStatusAt = Date.now(); render();
+  if (changed) renderBags();   // Sync is only offered while idle; rows are rebuilt only when needed (taps survive)
+}
 
 function fillPresets(list) {
   const sel = $('preset'), keep = sel.value; sel.textContent = '';
@@ -112,8 +152,9 @@ async function attach(link, name) {
   client = new Client(link, () => keyOverride ?? (demo ? SIM_PASSPHRASE : $('key').value.trim()));   // trim: phone keyboards append a space; Demo never touches the real passphrase box
   client.on('status', onStatus);
   client.on('event', (e) => {
+    if (e.ev === 'bags' || (e.re === 'bags' && e.ok)) { bags = e; renderBags(); }
     if (e.ev === 'hello') { fillPresets(e.presets || []); $('host').textContent = `${e.name || ''}  (${e.host || ''})  fw ${e.fw || '?'}`; $('conn').textContent = demo ? 'demo' : (e.name || 'connected'); log('hello from ' + (e.host || '?') + (e.net ? ' ' + e.net.filter((n) => n[2]).map((n) => n[1]).join(' ') : '')); }
-    else if (e.ev) log('event ' + JSON.stringify(e));
+    else if (e.ev && e.ev !== 'bags') log('event ' + JSON.stringify(e));   // bags: shown in its card, not the log
   });
   client.on('disconnect', () => { log(userDisconnect ? 'disconnected' : 'link lost'); userDisconnect = false; detach(); });
   $('conn').textContent = demo ? 'demo' : 'connected'; $('conn').className = 'pill ' + (demo ? 'demo' : 'on');
@@ -122,7 +163,7 @@ async function attach(link, name) {
   render();
 }
 function detach() {
-  client = null; status = null; demo = false; sim = null;
+  client = null; status = null; demo = false; sim = null; bags = null; renderBags();
   $('conn').textContent = 'disconnected'; $('conn').className = 'pill off';
   $('demoCard').hidden = true; $('unsupported').hidden = webBluetoothSupported(); releaseWake(); render();
 }
@@ -147,15 +188,15 @@ $('dStall').onclick = () => { if (sim) { sim.stallStatus(!sim.stalled); log('sta
 $('dDrop').onclick = () => sim?.dropLink();
 
 // ---- commands -----------------------------------------------------------------------------------
-async function send(cmd) {
-  busy = true; render(); setMsg('sending ' + cmd.c + '…');
+async function send(cmd, timeoutMs) {
+  busy = true; render(); renderBags(); setMsg('sending ' + cmd.c + '…');
   try {
-    const r = await client.command(cmd);
+    const r = await client.command(cmd, timeoutMs);
     if (r.ok) { setMsg(`${cmd.c}: accepted`); log(`${cmd.c} ok`); }
     else { setMsg(`${cmd.c} refused: ${r.err}` + (r.err === 'auth' ? ' (wrong passphrase: retype it above and reconnect)' : ''), true); log(`${cmd.c} refused: ${r.err}`); }
     return r;
   } catch (e) { setMsg(`${cmd.c} failed: ${e.message}`, true); log(`${cmd.c} failed: ${e.message}`); }
-  finally { busy = false; render(); }
+  finally { busy = false; render(); renderBags(); }
 }
 $('btnStart').onclick = () => send({ c: 'start', preset: $('preset').value, sec: Number($('dur').value) });
 $('btnTime').onclick = () => send({ c: 'set_time', unix: Math.round(Date.now() / 1000) });
@@ -206,6 +247,12 @@ async function selftest() {
   out(r4?.ok === true, 'stop accepted');
   await wait(3000);
   out(status?.state === 'idle', 'back to idle');
+  const bag = 'lee_2026-11-14_21-11-15', rowText = () => [...document.querySelectorAll('.bagrow')].find((r) => r.textContent.includes(bag))?.textContent || '';
+  out(document.querySelectorAll('.bagrow').length === 3, 'bag list shows 3 bags');
+  const r5 = await send({ c: 'sync', bag }); await wait(700);
+  out(r5?.ok === true && rowText().includes('syncing'), 'sync accepted, row shows syncing');
+  await wait(2500);
+  out(rowText().includes('in the vault'), 'row shows in the vault after sync');
   sim.stallStatus(true); await wait(4500);
   out(!$('stale').hidden, 'stale banner after status stalls');
   log('SELFTEST DONE');

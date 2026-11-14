@@ -12,6 +12,9 @@ export class SimLink {
     this.rx = new Reassembler(); this.nonce = null; this.seq = 0;
     this.state = 'idle'; this.t0 = 0; this.limit = 0; this.bag = ''; this.frames = [0, 0];
     this.stalled = false; this.warn = []; this.clockSkew = 0; this.closed = false;
+    // bags as the gateway lists them: [name, MB, state, pct, note]
+    this.bags = [['lee_2026-11-14_16-26-48', 22305, 'split', 0, '11 files'], ['lee_2026-11-14_21-11-15', 4548, 'local', 0, ''],
+      ['test_single/lee_2026-11-14_21-09-18', 696, 'synced', 100, '']];
     this.presets = [
       { id: 'stereo40', name: 'Stereo 40 Hz, auto exposure', maxSec: 3600 },
       { id: 'stereo40f8', name: 'Stereo 40 Hz, fixed 8 ms', maxSec: 3600 },
@@ -19,6 +22,22 @@ export class SimLink {
     this.timer = setInterval(() => this.tick(), tickMs);
     setTimeout(() => this.event({ ev: 'hello', v: 1, host: 'sim-jetson', fw: 'sim', net: [['wlP1p1s0', '192.168.68.159', 1], ['tailscale0', '100.93.241.45', 1], ['l4tbr0', '192.168.55.1', 0]], presets: this.presets }), 50);
     setTimeout(() => this.tick(), 20);
+    setTimeout(() => this.pushBags(), 120);
+  }
+  bagsMsg() { return { bags: this.bags.map((b) => b.slice()), more: 0, free_gb: 285.2 }; }
+  pushBags() { if (!this.closed) this.event({ ev: 'bags', ...this.bagsMsg() }); }
+  syncBag(b) {   // phases like the gateway: compress -> upload (pct) -> verify -> synced
+    b[2] = 'syncing'; b[3] = 0; b[4] = 'compress'; this.pushBags();
+    const step = () => {
+      if (this.closed) return;
+      if (this.state !== 'idle') { b[2] = 'local'; b[3] = 0; b[4] = 'cancelled: recording started'; return this.pushBags(); }
+      if (b[4] === 'compress') { b[4] = 'upload'; }
+      else if (b[4] === 'upload' && b[3] < 100) { b[3] = Math.min(100, b[3] + 25); }
+      else if (b[4] === 'upload') { b[4] = 'verify'; }
+      else { b[2] = 'synced'; b[3] = 100; b[4] = ''; return this.pushBags(); }
+      this.pushBags(); setTimeout(step, 300);
+    };
+    setTimeout(step, 300);
   }
   // ---- link interface ----
   async readNonce() {
@@ -61,6 +80,21 @@ export class SimLink {
       case 'set_time':
         if (this.state !== 'idle') return { ok: false, re: 'set_time', err: 'busy' };
         this.clockSkew = 0; return { ok: true, re: 'set_time' };
+      case 'bags': return { ok: true, re: 'bags', ...this.bagsMsg() };
+      case 'sync': {
+        const b = this.bags.find((x) => x[0] === cmd.bag);
+        if (!b) return { ok: false, re: 'sync', err: 'bad_arg' };
+        if (this.state !== 'idle' || this.bags.some((x) => x[2] === 'syncing')) return { ok: false, re: 'sync', err: 'busy' };
+        if (b[2] !== 'local') return { ok: false, re: 'sync', err: ['split', 'unfinished'].includes(b[2]) ? 'not_syncable' : 'synced' };
+        this.syncBag(b); return { ok: true, re: 'sync' };
+      }
+      case 'delete': {
+        const i = this.bags.findIndex((x) => x[0] === cmd.bag);
+        if (i < 0) return { ok: false, re: 'delete', err: 'bad_arg' };
+        if (this.state !== 'idle') return { ok: false, re: 'delete', err: 'busy' };
+        if (this.bags[i][2] !== 'synced') return { ok: false, re: 'delete', err: 'not_synced' };
+        this.bags.splice(i, 1); setTimeout(() => this.pushBags(), 10); return { ok: true, re: 'delete', bag: cmd.bag };
+      }
       default: return { ok: false, err: 'bad_cmd' };
     }
   }

@@ -34,5 +34,11 @@ table{width:100%;border-collapse:collapse}td{padding:5px 0;border-bottom:1px sol
 td:last-child{text-align:right;font-variant-numeric:tabular-nums}
 .ok{color:var(--ok)}.wr{color:var(--warn)}.er{color:var(--bad)}
 pre{margin:0;max-height:180px;overflow:auto;white-space:pre-wrap;color:var(--dim)}
+/* bag list: name and state on the left, actions on the right */
+.bagrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)}
+.bagrow:first-child{border-top:0}
+.bagrow .bi{flex:1;min-width:0}.bagrow .bn{font-family:ui-monospace,monospace;font-size:13px;overflow-wrap:anywhere}
+.bagrow .bs{font-size:12px;color:var(--dim)}.bagrow button{min-height:36px;padding:6px 10px;font-size:13px}
 .netrow{display:block;width:100%;text-align:left;margin:0 0 6px;font-family:ui-monospace,monospace}
 .netrow.off{opacity:.5}
+#log{white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
