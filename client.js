@@ -3,7 +3,7 @@
 //
 // link = { readNonce(): Promise<Uint8Array>, writeCommand(bytes): Promise<void>,
 //          onStatusChunk(fn), onEventChunk(fn), onDisconnect(fn), close(), chunkSize }
-import { Reassembler, chunk, decodeJson, signCommand } from './protocol.js';
+import { Reassembler, chunk, decodeJson, signCommand, sealSecret, openSecret } from './protocol.js';
 
 export class Client {
   constructor(link, getKey) {
@@ -31,19 +31,25 @@ export class Client {
 
   // Sends one authenticated command and resolves with the server's reply event.
   // A reply with ok:false still resolves (the caller shows e.err); only transport trouble rejects.
-  async command(cmd, timeoutMs = 8000) {
+  // opts.secret: a string sealed into the command as `sec` (see sealSecret); a sealed `sec` in the reply is
+  // opened into reply.secret. Both use this command's nonce, so nothing secret crosses the link in clear.
+  async command(cmd, timeoutMs = 8000, opts = {}) {
     const key = this.getKey();
     if (!key) throw new Error('no passphrase set');
     const id = this.nextId++;
     const nonce = await this.link.readNonce();           // fresh, single use
-    const signed = await signCommand(key, nonce, { ...cmd, id });
+    const body = { ...cmd, id };
+    if (opts.secret !== undefined) body.sec = await sealSecret(key, nonce, opts.secret);
+    const signed = await signCommand(key, nonce, body);
     const reply = new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('no reply')); }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });
     try { await this.link.writeCommand(signed); }
     catch (e) { const p = this.pending.get(id); if (p) { clearTimeout(p.timer); this.pending.delete(id); } throw e; }
-    return reply;
+    const r = await reply;
+    if (r.sec) { try { r.secret = await openSecret(key, nonce, r.sec); } catch { r.secret = undefined; } }
+    return r;
   }
   close() { this.link.close(); }
 }

@@ -34,6 +34,10 @@ table{width:100%;border-collapse:collapse}td{padding:5px 0;border-bottom:1px sol
 td:last-child{text-align:right;font-variant-numeric:tabular-nums}
 .ok{color:var(--ok)}.wr{color:var(--warn)}.er{color:var(--bad)}
 pre{margin:0;max-height:180px;overflow:auto;white-space:pre-wrap;color:var(--dim)}
+/* Wi-Fi card */
+.hsinfo{background:rgba(79,179,255,.12);border-left:3px solid var(--accent);border-radius:6px;padding:8px;margin:8px 0;font-size:13px}
+.hsinfo b{font-family:ui-monospace,monospace;user-select:all}
+.netpw{display:flex;gap:6px;margin-top:6px}.netpw input{flex:1;min-width:0}
 /* bag list: name and state on the left, actions on the right */
 .bagrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)}
 .bagrow:first-child{border-top:0}

@@ -88,6 +88,20 @@
     <div class="dim small">Simulated gateway speaking the real protocol. It ignores the passphrase box.</div>
   </section>
 
+  <section class="card" id="wifiCard">
+    <h2>Jetson Wi-Fi</h2>
+    <div id="wifiNow" class="small">connect to see the Wi-Fi</div>
+    <div id="hotspotInfo" class="hsinfo" hidden></div>
+    <div class="row wrap">
+      <button class="ghost small" id="btnScan">Scan networks</button>
+      <button class="ghost small" id="btnHotspot">Hotspot on</button>
+      <button class="ghost small" id="btnWifiOff" hidden>Disconnect</button>
+    </div>
+    <div id="nets"></div>
+    <div class="dim small">The phone console keeps working over Bluetooth whatever the Wi-Fi does. Hotspot: the Jetson becomes
+      a Wi-Fi network (no internet, no Tailscale while it is on). Passwords cross Bluetooth encrypted with your passphrase.</div>
+  </section>
+
   <section class="card" id="bagsCard">
     <h2>Bags on the Jetson <span id="bagsInfo" class="dim"></span></h2>
     <div id="bags" class="small dim">connect to see the bags</div>

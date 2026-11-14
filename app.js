@@ -6,7 +6,7 @@ import { SimLink, SIM_PASSPHRASE } from './sim.js';
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = '1033a31';   // publish_pages.sh writes the source commit here
+const BUILD = 'fcbf0a7';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -14,9 +14,93 @@ const store = {
 
 let keyOverride = null; // tests only
 let bags = null;         // last `bags` event / reply from the gateway: {bags: [[name, mb, state, pct, note]], more, free_gb}
+let nets = null;         // last wifi_scan result: [[ssid, signal, security, known, active]]
+let hotspotPw = '';      // shown while the Jetson runs its hotspot (arrives sealed)
+let joining = '';        // ssid whose password box is open
 let client = null, sim = null, status = null, lastStatusAt = 0, demo = false, busy = false, wakeLock = null;
 
 // ---- small helpers ----------------------------------------------------------------------------
+// ---- Jetson Wi-Fi -----------------------------------------------------------------------------------
+let lastWifi = '';
+function renderWifi() {
+  const wf = status && client ? status.wifi : null;
+  const now = $('wifiNow'), hi = $('hotspotInfo');
+  now.className = 'small';
+  if (!client) now.textContent = 'connect to see the Wi-Fi';
+  else if (!wf) now.textContent = '…';
+  else if (wf.mode === 'client') now.textContent = `connected to ${wf.ssid} (${wf.signal}%)${wf.ip ? ' · ' + wf.ip : ''}`;
+  else if (wf.mode === 'hotspot') now.textContent = `hotspot ${wf.ssid} · ${wf.ip || '10.42.0.1'}`;
+  else if (wf.mode === 'off') now.textContent = 'Wi-Fi not connected';
+  else now.textContent = 'no Wi-Fi device';
+  const hs = wf && wf.mode === 'hotspot';
+  hi.hidden = !hs;
+  if (hs) {
+    hi.textContent = '';
+    hi.append('Join Wi-Fi ');
+    const n = document.createElement('b'); n.textContent = wf.ssid; hi.append(n, ', password ');
+    if (hotspotPw) { const p = document.createElement('b'); p.textContent = hotspotPw; hi.append(p); }
+    else { const b = document.createElement('button'); b.className = 'ghost small'; b.textContent = 'show';
+      b.onclick = async () => { const r = await send({ c: 'hotspot_password' }); if (r?.ok && r.secret) { hotspotPw = r.secret; renderWifi(); } }; hi.append(b); }
+    hi.append(document.createElement('br'), `Then the Jetson is at ${wf.ip || '10.42.0.1'}.`);
+  }
+  $('btnHotspot').textContent = hs ? 'Hotspot off' : 'Hotspot on';
+  $('btnHotspot').disabled = $('btnScan').disabled = !client || busy;
+  $('btnWifiOff').hidden = !(wf && wf.mode === 'client'); $('btnWifiOff').disabled = busy;
+  renderNets();
+}
+function renderNets() {
+  const box = $('nets'); box.textContent = '';
+  if (!client || !nets) return;
+  if (!nets.length) { box.className = 'dim small'; box.textContent = 'no networks found'; return; }
+  box.className = '';
+  for (const [ssid, sig, sec, known, active] of nets) {
+    const row = document.createElement('div'); row.className = 'bagrow';
+    const info = document.createElement('div'); info.className = 'bi';
+    const n = document.createElement('div'); n.className = 'bn'; n.textContent = ssid;
+    const s = document.createElement('div'); s.className = 'bs';
+    s.textContent = `${sig}% · ${sec || 'open'}${known ? ' · saved' : ''}${active ? ' · connected' : ''}`;
+    info.append(n, s);
+    if (joining === ssid) {
+      const f = document.createElement('div'); f.className = 'netpw';
+      const pw = document.createElement('input'); pw.type = 'password'; pw.placeholder = 'Wi-Fi password'; pw.autocomplete = 'off';
+      const go = document.createElement('button'); go.className = 'primary small'; go.textContent = 'Join';
+      go.onclick = () => wifiConnect(ssid, sec, pw.value);
+      f.append(pw, go); info.append(f); setTimeout(() => pw.focus(), 0);
+    }
+    row.append(info);
+    if (!active) {
+      const bc = document.createElement('button'); bc.className = 'ghost'; bc.textContent = 'Connect'; bc.disabled = busy;
+      bc.onclick = () => { if (known || !sec) wifiConnect(ssid, sec, ''); else { joining = joining === ssid ? '' : ssid; renderNets(); } };
+      row.append(bc);
+    }
+    if (known) {
+      const bf = document.createElement('button'); bf.className = 'ghost'; bf.textContent = 'Forget'; bf.disabled = busy;
+      bf.onclick = () => { if (confirm(`Forget ${ssid} on the Jetson?`)) send({ c: 'wifi_forget', ssid }, 20000).then(scanNets); };
+      row.append(bf);
+    }
+    box.append(row);
+  }
+}
+async function scanNets() {
+  const r = await send({ c: 'wifi_scan' }, 40000);
+  if (r?.ok) { nets = r.nets; renderNets(); }
+}
+async function wifiConnect(ssid, security, password) {
+  joining = ''; renderNets();
+  setMsg(`connecting the Jetson to ${ssid}… (up to a minute; it goes back to the previous network if this fails)`);
+  const r = await send({ c: 'wifi_connect', ssid, security }, 90000, password ? { secret: password } : {});
+  if (r?.ok) scanNets();
+}
+$('btnScan').onclick = scanNets;
+$('btnHotspot').onclick = async () => {
+  const on = !(status?.wifi?.mode === 'hotspot');
+  if (on && !confirm('Switch the Jetson to hotspot mode?\n\nIt leaves its current Wi-Fi: no internet and no Tailscale until the hotspot is off.')) return;
+  const r = await send({ c: 'hotspot', on }, 90000);
+  if (r?.ok && on) { hotspotPw = r.secret || ''; renderWifi(); }
+  if (r?.ok && !on) hotspotPw = '';
+};
+$('btnWifiOff').onclick = () => { if (confirm('Disconnect the Jetson from Wi-Fi?\n\nIt stays off Wi-Fi (no internet, no Tailscale) until you connect it again.')) send({ c: 'wifi_disconnect' }, 20000); };
+
 // ---- bags ----------------------------------------------------------------------------------------
 const gb = (mb) => (mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : mb + ' MB');
 const BAG_STATE = {
@@ -139,6 +223,8 @@ function onStatus(s) {
   const changed = !status || status.state !== s.state;
   status = s; lastStatusAt = Date.now(); render();
   if (changed) renderBags();   // Sync is only offered while idle; rows are rebuilt only when needed (taps survive)
+  const w = JSON.stringify(s.wifi || null);
+  if (w !== lastWifi) { lastWifi = w; renderWifi(); }
 }
 
 function fillPresets(list) {
@@ -163,7 +249,7 @@ async function attach(link, name) {
   render();
 }
 function detach() {
-  client = null; status = null; demo = false; sim = null; bags = null; renderBags();
+  client = null; status = null; demo = false; sim = null; bags = null; nets = null; hotspotPw = ''; joining = ''; renderBags(); renderWifi();
   $('conn').textContent = 'disconnected'; $('conn').className = 'pill off';
   $('demoCard').hidden = true; $('unsupported').hidden = webBluetoothSupported(); releaseWake(); render();
 }
@@ -188,15 +274,15 @@ $('dStall').onclick = () => { if (sim) { sim.stallStatus(!sim.stalled); log('sta
 $('dDrop').onclick = () => sim?.dropLink();
 
 // ---- commands -----------------------------------------------------------------------------------
-async function send(cmd, timeoutMs) {
-  busy = true; render(); renderBags(); setMsg('sending ' + cmd.c + '…');
+async function send(cmd, timeoutMs, opts) {
+  busy = true; render(); renderBags(); renderWifi(); if (!/connecting/.test($('msg').textContent)) setMsg('sending ' + cmd.c + '…');
   try {
-    const r = await client.command(cmd, timeoutMs);
+    const r = await client.command(cmd, timeoutMs, opts);
     if (r.ok) { setMsg(`${cmd.c}: accepted`); log(`${cmd.c} ok`); }
     else { setMsg(`${cmd.c} refused: ${r.err}` + (r.err === 'auth' ? ' (wrong passphrase: retype it above and reconnect)' : ''), true); log(`${cmd.c} refused: ${r.err}`); }
     return r;
   } catch (e) { setMsg(`${cmd.c} failed: ${e.message}`, true); log(`${cmd.c} failed: ${e.message}`); }
-  finally { busy = false; render(); renderBags(); }
+  finally { busy = false; render(); renderBags(); renderWifi(); }
 }
 $('btnStart').onclick = () => send({ c: 'start', preset: $('preset').value, sec: Number($('dur').value) });
 $('btnTime').onclick = () => send({ c: 'set_time', unix: Math.round(Date.now() / 1000) });
@@ -253,6 +339,12 @@ async function selftest() {
   out(r5?.ok === true && rowText().includes('syncing'), 'sync accepted, row shows syncing');
   await wait(2500);
   out(rowText().includes('in the vault'), 'row shows in the vault after sync');
+  await scanNets(); await wait(200);
+  out(document.querySelectorAll('#nets .bagrow').length === 3, 'wifi scan shows 3 networks');
+  const hs = await send({ c: 'hotspot', on: true }); if (hs?.ok) hotspotPw = hs.secret || ''; await wait(1300);
+  out(hs?.ok && $('wifiNow').textContent.startsWith('hotspot') && $('hotspotInfo').textContent.includes('sim-hotspot-pw'), 'hotspot on: name and password shown');
+  await send({ c: 'hotspot', on: false }); hotspotPw = ''; await wait(1300);
+  out($('wifiNow').textContent.includes('connected to SM'), 'hotspot off: back on SM');
   sim.stallStatus(true); await wait(4500);
   out(!$('stale').hidden, 'stale banner after status stalls');
   log('SELFTEST DONE');

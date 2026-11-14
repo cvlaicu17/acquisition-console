@@ -90,6 +90,25 @@ export async function signCommand(passphrase, nonce, cmd) {
   return encodeJson({ body, mac });
 }
 
+// Secrets over the unencrypted link (a Wi-Fi password to the Jetson, the hotspot password back): AES-256-GCM
+// under K = HMAC-SHA256(passphrase, "lee-secret" + the command's single-use nonce); {iv, ct} in base64.
+// Mirrors seal/unseal in the gateway.
+const b64 = (u8) => btoa(String.fromCharCode(...u8));
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+async function secretKey(passphrase, nonce) {
+  const k = await hmac(passphrase, enc.encode('lee-secret'), nonce);
+  return webcrypto.subtle.importKey('raw', k, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+export async function sealSecret(passphrase, nonce, text) {
+  const iv = webcrypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await webcrypto.subtle.encrypt({ name: 'AES-GCM', iv }, await secretKey(passphrase, nonce), enc.encode(text)));
+  return { iv: b64(iv), ct: b64(ct) };
+}
+export async function openSecret(passphrase, nonce, sealed) {
+  const pt = await webcrypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(sealed.iv) }, await secretKey(passphrase, nonce), unb64(sealed.ct));
+  return new TextDecoder().decode(pt);
+}
+
 // Constant-time-ish compare (the gateway does the real check; the simulator reuses this).
 export function macEquals(a, b) {
   if (a.length !== b.length) return false;

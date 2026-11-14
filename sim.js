@@ -1,7 +1,7 @@
 // Simulated Jetson gateway, used by the Demo button and by the tests. It speaks the REAL wire
 // protocol (chunk framing, single-use nonce, HMAC check) so the page code path is the production one;
 // only the radio is missing. It deliberately uses 20-byte chunks to exercise reassembly.
-import { webcrypto, Reassembler, chunk, encodeJson, decodeJson, verifyCommand } from './protocol.js';
+import { webcrypto, Reassembler, chunk, encodeJson, decodeJson, verifyCommand, sealSecret, openSecret } from './protocol.js';
 
 export const SIM_PASSPHRASE = 'demo-passphrase';
 
@@ -15,6 +15,10 @@ export class SimLink {
     // bags as the gateway lists them: [name, MB, state, pct, note]
     this.bags = [['lee_2026-11-14_16-26-48', 22305, 'split', 0, '11 files'], ['lee_2026-11-14_21-11-15', 4548, 'local', 0, ''],
       ['test_single/lee_2026-11-14_21-09-18', 696, 'synced', 100, '']];
+    // Wi-Fi like the gateway's: [ssid, signal, security, known, active]; one secured network needs 'letmein1'
+    this.wifi = { mode: 'client', ssid: 'SM', signal: 100, ip: '192.168.68.170' };
+    this.nets = [['SM', 100, 'WPA2', true, true], ['Andrei Wifi', 80, 'WPA2 WPA3', false, false], ['SM_Guest', 70, '', false, false]];
+    this.hotspotPw = 'sim-hotspot-pw'; this.lastSecret = null;
     this.presets = [
       { id: 'stereo40', name: 'Stereo 40 Hz, auto exposure', maxSec: 3600 },
       { id: 'stereo40f8', name: 'Stereo 40 Hz, fixed 8 ms', maxSec: 3600 },
@@ -23,6 +27,16 @@ export class SimLink {
     setTimeout(() => this.event({ ev: 'hello', v: 1, host: 'sim-jetson', fw: 'sim', net: [['wlP1p1s0', '192.168.68.159', 1], ['tailscale0', '100.93.241.45', 1], ['l4tbr0', '192.168.55.1', 0]], presets: this.presets }), 50);
     setTimeout(() => this.tick(), 20);
     setTimeout(() => this.pushBags(), 120);
+  }
+  async simConnect(cmd, nonce) {
+    const n = this.nets.find((x) => x[0] === cmd.ssid);
+    if (!n) return { ok: false, re: 'wifi_connect', err: 'failed' };
+    let pw = '';
+    if (cmd.sec) { try { pw = await openSecret(this.pass, nonce, cmd.sec); } catch { return { ok: false, re: 'wifi_connect', err: 'bad_secret' }; } }
+    this.lastSecret = pw;                                   // tests: what the Jetson side received
+    if (n[2] && !n[3] && pw !== 'letmein1') return { ok: false, re: 'wifi_connect', err: 'failed' };   // stays on the old network
+    n[3] = true; this.wifi = { mode: 'client', ssid: n[0], signal: n[1], ip: '192.168.68.171' };
+    return { ok: true, re: 'wifi_connect' };
   }
   bagsMsg() { return { bags: this.bags.map((b) => b.slice()), more: 0, free_gb: 285.2 }; }
   pushBags() { if (!this.closed) this.event({ ev: 'bags', ...this.bagsMsg() }); }
@@ -54,7 +68,7 @@ export class SimLink {
     if (!nonce) return reply({ ok: false, err: 'no_nonce' });
     const v = await verifyCommand(this.pass, nonce, msg);
     if (!v.ok) return reply({ ok: false, err: v.err });
-    reply(this.exec(v.cmd));
+    reply(await this.exec(v.cmd, nonce));
   }
   onStatusChunk(f) { this.cb.status.push(f); }
   onEventChunk(f) { this.cb.event.push(f); }
@@ -62,7 +76,7 @@ export class SimLink {
   close() { this.closed = true; clearInterval(this.timer); this.cb.disconnect.forEach((f) => f()); }
 
   // ---- simulated recorder ----
-  exec(cmd) {
+  exec(cmd, nonce) {
     switch (cmd.c) {
       case 'ping': return { ok: true, re: 'ping' };
       case 'start': {
@@ -81,6 +95,23 @@ export class SimLink {
         if (this.state !== 'idle') return { ok: false, re: 'set_time', err: 'busy' };
         this.clockSkew = 0; return { ok: true, re: 'set_time' };
       case 'bags': return { ok: true, re: 'bags', ...this.bagsMsg() };
+      case 'wifi_scan':
+        this.nets.forEach((n) => { n[4] = this.wifi.mode === 'client' && n[0] === this.wifi.ssid; });
+        return { ok: true, re: 'wifi_scan', nets: this.nets.map((n) => n.slice()) };
+      case 'wifi_connect': return this.simConnect(cmd, nonce);
+      case 'wifi_disconnect': this.wifi = { mode: 'off', ssid: '', signal: 0, ip: '' }; return { ok: true, re: 'wifi_disconnect' };
+      case 'wifi_forget': {
+        const n = this.nets.find((x) => x[0] === cmd.ssid && x[3]);
+        if (!n) return { ok: false, re: 'wifi_forget', err: 'bad_arg' };
+        n[3] = false; return { ok: true, re: 'wifi_forget' };
+      }
+      case 'hotspot':
+        if (cmd.on) { this.prevWifi = this.prevWifi || { ...this.wifi }; this.wifi = { mode: 'hotspot', ssid: 'LEE-SIM', signal: 0, ip: '10.42.0.1' };
+          return sealSecret(this.pass, nonce, this.hotspotPw).then((sec) => ({ ok: true, re: 'hotspot', ssid: 'LEE-SIM', ip: '10.42.0.1', sec })); }
+        this.wifi = this.prevWifi || { mode: 'off', ssid: '', signal: 0, ip: '' }; this.prevWifi = null;
+        return { ok: true, re: 'hotspot' };
+      case 'hotspot_password':
+        return sealSecret(this.pass, nonce, this.hotspotPw).then((sec) => ({ ok: true, re: 'hotspot_password', ssid: 'LEE-SIM', sec }));
       case 'sync': {
         const b = this.bags.find((x) => x[0] === cmd.bag);
         if (!b) return { ok: false, re: 'sync', err: 'bad_arg' };
@@ -123,6 +154,7 @@ export class SimLink {
       disk: { free_gb: 412.3 - el * 0.0112, mbs: rec ? 86.4 : 0 },
       temp: { cpu: rec ? 58 : 41, nvme: rec ? 52 : 38 },
       net: [['wlP1p1s0', '192.168.68.159', 1], ['tailscale0', '100.93.241.45', 1], ['l4tbr0', '192.168.55.1', 0]],
+      wifi: { ...this.wifi },
       warn: this.warn.slice(), err: '',
     };
   }
