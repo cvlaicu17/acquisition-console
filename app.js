@@ -10,7 +10,7 @@ const HTTP_MODE = document.querySelector('meta[name="lee-transport"]')?.content 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = '9d15f9c';   // publish_pages.sh writes the source commit here
+const BUILD = 'b394577';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -273,9 +273,17 @@ function onStatus(s) {
 
 function fillPresets(list) {
   const sel = $('preset'), keep = sel.value; sel.textContent = '';
-  for (const p of list) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; sel.append(o); }
+  for (const p of list) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; o.dataset.max = p.maxSec || 3600; sel.append(o); }
   if (keep) sel.value = keep;
+  limitDurations();
 }
+// A preset allows up to maxSec (camera presets 1 h, Allan 24 h): longer durations are not offered.
+function limitDurations() {
+  const max = Number($('preset').selectedOptions[0]?.dataset.max || 3600), d = $('dur');
+  for (const o of d.options) o.disabled = Number(o.value) > max;
+  if (d.selectedOptions[0]?.disabled) d.value = '0';
+}
+$('preset').addEventListener('change', limitDurations);
 
 // ---- connection ---------------------------------------------------------------------------------
 async function attach(link, name) {
@@ -380,7 +388,7 @@ async function selftest() {
   const out = (ok, what) => { log((ok ? 'PASS ' : 'FAIL ') + what); document.title = (document.title.startsWith('FAIL') || !ok ? 'FAIL' : 'PASS') + ' selftest'; };
   await wait(1500);
   out(status?.state === 'idle', 'status arrives, idle');
-  out($('preset').options.length === 2, 'presets from hello');
+  out($('preset').options.length === 3, 'presets from hello');
   const r1 = await send({ c: 'start', preset: 'stereo40', sec: 0 });
   out(r1?.ok === true, 'start accepted');
   await wait(4500);

@@ -22,6 +22,7 @@ export class SimLink {
     this.presets = [
       { id: 'stereo40', name: 'Stereo 40 Hz, auto exposure', maxSec: 3600 },
       { id: 'stereo40f8', name: 'Stereo 40 Hz, fixed 8 ms', maxSec: 3600 },
+      { id: 'allan', name: 'Allan variance: IMUs only (keep the rig still)', maxSec: 86400 },
     ];
     this.timer = setInterval(() => this.tick(), tickMs);
     setTimeout(() => this.event({ ev: 'hello', v: 1, host: 'sim-jetson', fw: 'sim', net: [['wlP1p1s0', '192.168.68.159', 1], ['tailscale0', '100.93.241.45', 1], ['l4tbr0', '192.168.55.1', 0]], presets: this.presets }), 50);
