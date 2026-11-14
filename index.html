@@ -45,6 +45,19 @@
     <div id="warns"></div>
   </section>
 
+  <section class="card" id="liveCard">
+    <h2>Live view</h2>
+    <div id="liveHint" class="small dim"></div>
+    <div class="row" id="liveCtl">
+      <button class="ghost small" id="btnLive">Start preview</button>
+      <span id="liveState" class="small dim"></span>
+    </div>
+    <div id="cams" hidden>
+      <div class="cam" id="cam0"><div class="camhead"><span>Camera 0</span><button class="ghost small max">⤢</button></div><img alt="camera 0"></div>
+      <div class="cam" id="cam1"><div class="camhead"><span>Camera 1</span><button class="ghost small max">⤢</button></div><img alt="camera 1"></div>
+    </div>
+  </section>
+
   <section class="card" id="ctlCard">
     <div class="row two">
       <label class="field">Preset <select id="preset"></select></label>

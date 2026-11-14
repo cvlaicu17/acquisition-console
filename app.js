@@ -2,11 +2,15 @@ import { STALE_AFTER_MS } from './protocol.js';
 import { Client } from './client.js';
 import { connectBle, webBluetoothSupported } from './webble.js';
 import { SimLink, SIM_PASSPHRASE } from './sim.js';
+import { HttpLink } from './httplink.js';
+
+// Served by the Jetson itself over its hotspot (http://10.42.0.1/): no Bluetooth there; the same protocol over HTTP.
+const HTTP_MODE = document.querySelector('meta[name="lee-transport"]')?.content === 'http';
 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = 'fcbf0a7';   // publish_pages.sh writes the source commit here
+const BUILD = '3f3d813';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -20,8 +24,41 @@ let joining = '';        // ssid whose password box is open
 let client = null, sim = null, status = null, lastStatusAt = 0, demo = false, busy = false, wakeLock = null;
 
 // ---- small helpers ----------------------------------------------------------------------------
+// ---- live view ---------------------------------------------------------------------------------------
+// Over the hotspot page: start/stop the preview (lee-live: cameras without a bag) and show each camera's MJPEG
+// stream from :8091. Over Bluetooth: how to get there. Streams are dropped while the page is hidden.
+function renderLive() {
+  const lv = status && client ? status.live : null, wf = status && client ? status.wifi : null;
+  const on = !!lv && ['active', 'activating'].includes(lv.state), streaming = on && lv.stream === 'active';
+  const rec = status && status.state !== 'idle';
+  $('liveCtl').hidden = !client || demo;
+  $('btnLive').textContent = on ? 'Stop preview' : 'Start preview';
+  $('btnLive').disabled = busy || (!on && rec);
+  $('liveState').textContent = !lv ? '' : on ? (streaming ? 'cameras streaming' : 'starting the cameras…') : (rec ? 'not while recording' : 'off');
+  const hint = $('liveHint');
+  if (HTTP_MODE) hint.textContent = 'Preview runs the cameras without recording. Stop it before you record.';
+  else if (wf && wf.mode === 'hotspot') {
+    hint.textContent = ''; hint.append('Join the Wi-Fi ' + wf.ssid + ', then open ');
+    const a = document.createElement('a'); a.href = `http://${wf.ip || '10.42.0.1'}/`; a.textContent = a.href; hint.append(a, ' for the camera images.');
+  } else hint.textContent = 'Camera images come over the Jetson\'s hotspot: switch it on below, join it, open the address shown here.';
+  const show = HTTP_MODE && streaming && document.visibilityState === 'visible';
+  $('cams').hidden = !(HTTP_MODE && on);
+  ['cam0', 'cam1'].forEach((c) => {
+    const img = document.querySelector(`#${c} img`), want = show ? `http://${location.hostname}:${lv.port}/${c}.mjpg` : '';
+    if (want && img.dataset.src !== want) { img.dataset.src = want; img.src = want; }
+    if (!want && img.dataset.src) { img.dataset.src = ''; img.removeAttribute('src'); }   // closes the stream
+  });
+}
+$('btnLive').onclick = () => send({ c: 'live', on: !['active', 'activating'].includes(status?.live?.state) }, 20000);
+for (const cam of document.querySelectorAll('.cam')) {
+  const toggle = () => { cam.classList.toggle('max'); document.body.classList.toggle('noscroll', !!document.querySelector('.cam.max')); };
+  cam.querySelector('button.max').onclick = (e) => { e.stopPropagation(); toggle(); };
+  cam.querySelector('img').onclick = toggle;
+}
+document.addEventListener('visibilitychange', () => renderLive());
+
 // ---- Jetson Wi-Fi -----------------------------------------------------------------------------------
-let lastWifi = '';
+let lastWifi = '', lastLive = '';
 function renderWifi() {
   const wf = status && client ? status.wifi : null;
   const now = $('wifiNow'), hi = $('hotspotInfo');
@@ -39,6 +76,7 @@ function renderWifi() {
     hi.append('Join Wi-Fi ');
     const n = document.createElement('b'); n.textContent = wf.ssid; hi.append(n, ', password ');
     if (hotspotPw) { const p = document.createElement('b'); p.textContent = hotspotPw; hi.append(p); }
+    else if (HTTP_MODE) hi.append('(you are on it)');
     else { const b = document.createElement('button'); b.className = 'ghost small'; b.textContent = 'show';
       b.onclick = async () => { const r = await send({ c: 'hotspot_password' }); if (r?.ok && r.secret) { hotspotPw = r.secret; renderWifi(); } }; hi.append(b); }
     hi.append(document.createElement('br'), `Then the Jetson is at ${wf.ip || '10.42.0.1'}.`);
@@ -69,7 +107,9 @@ function renderNets() {
     }
     row.append(info);
     if (!active) {
-      const bc = document.createElement('button'); bc.className = 'ghost'; bc.textContent = 'Connect'; bc.disabled = busy;
+      const bc = document.createElement('button'); bc.className = 'ghost'; bc.textContent = 'Connect';
+      bc.disabled = busy || (HTTP_MODE && !known && !!sec);   // a new password must be sealed: Bluetooth page only
+      if (HTTP_MODE && !known && sec) bc.title = 'new networks with a password: use the Bluetooth page';
       bc.onclick = () => { if (known || !sec) wifiConnect(ssid, sec, ''); else { joining = joining === ssid ? '' : ssid; renderNets(); } };
       row.append(bc);
     }
@@ -92,6 +132,7 @@ async function wifiConnect(ssid, security, password) {
   if (r?.ok) scanNets();
 }
 $('btnScan').onclick = scanNets;
+renderLive();
 $('btnHotspot').onclick = async () => {
   const on = !(status?.wifi?.mode === 'hotspot');
   if (on && !confirm('Switch the Jetson to hotspot mode?\n\nIt leaves its current Wi-Fi: no internet and no Tailscale until the hotspot is off.')) return;
@@ -112,7 +153,8 @@ function renderBags() {
   $('bagsInfo').textContent = bags ? `${bags.bags.length + (bags.more || 0)} · ${Number(bags.free_gb).toFixed(0)} GB free` : '';
   if (!client || !bags) { box.textContent = client ? 'loading…' : 'connect to see the bags'; return; }
   if (!bags.bags.length) { box.textContent = 'no bags in ~/bags'; return; }
-  const idle = status && status.state === 'idle', syncing = bags.bags.some((b) => b[2] === 'syncing');
+  const liveOn = ['active', 'activating'].includes(status?.live?.state);   // preview runs the cameras: no sync then
+  const idle = status && status.state === 'idle' && !liveOn, syncing = bags.bags.some((b) => b[2] === 'syncing');
   for (const [name, mb, st, pct, note] of bags.bags) {
     const row = document.createElement('div'); row.className = 'bagrow';
     const info = document.createElement('div'); info.className = 'bi';
@@ -191,7 +233,7 @@ function render() {
   for (const t of (s && s.warn) || []) { const d = document.createElement('div'); d.className = 'warnitem'; d.textContent = t; w.append(d); }
 
   const connected = !!client;
-  $('btnConnect').hidden = connected; $('btnDisconnect').hidden = !connected; $('btnDemo').hidden = connected;
+  $('btnConnect').hidden = connected || HTTP_MODE; $('btnDisconnect').hidden = !connected || HTTP_MODE; $('btnDemo').hidden = connected || HTTP_MODE;
   $('btnStart').disabled = !(connected && !stale && s && s.state === 'idle' && !busy);
   $('btnStop').disabled = !(connected && s && ['starting', 'recording', 'error'].includes(s.state));
 
@@ -225,6 +267,8 @@ function onStatus(s) {
   if (changed) renderBags();   // Sync is only offered while idle; rows are rebuilt only when needed (taps survive)
   const w = JSON.stringify(s.wifi || null);
   if (w !== lastWifi) { lastWifi = w; renderWifi(); }
+  const l = JSON.stringify([s.live || null, s.state, w]);
+  if (l !== lastLive) { lastLive = l; renderLive(); renderBags(); }
 }
 
 function fillPresets(list) {
@@ -249,7 +293,7 @@ async function attach(link, name) {
   render();
 }
 function detach() {
-  client = null; status = null; demo = false; sim = null; bags = null; nets = null; hotspotPw = ''; joining = ''; renderBags(); renderWifi();
+  client = null; status = null; demo = false; sim = null; bags = null; nets = null; hotspotPw = ''; joining = ''; renderBags(); renderWifi(); renderLive();
   $('conn').textContent = 'disconnected'; $('conn').className = 'pill off';
   $('demoCard').hidden = true; $('unsupported').hidden = webBluetoothSupported(); releaseWake(); render();
 }
@@ -282,7 +326,7 @@ async function send(cmd, timeoutMs, opts) {
     else { setMsg(`${cmd.c} refused: ${r.err}` + (r.err === 'auth' ? ' (wrong passphrase: retype it above and reconnect)' : ''), true); log(`${cmd.c} refused: ${r.err}`); }
     return r;
   } catch (e) { setMsg(`${cmd.c} failed: ${e.message}`, true); log(`${cmd.c} failed: ${e.message}`); }
-  finally { busy = false; render(); renderBags(); renderWifi(); }
+  finally { busy = false; render(); renderBags(); renderWifi(); renderLive(); }
 }
 $('btnStart').onclick = () => send({ c: 'start', preset: $('preset').value, sec: Number($('dur').value) });
 $('btnTime').onclick = () => send({ c: 'set_time', unix: Math.round(Date.now() / 1000) });
@@ -305,8 +349,12 @@ const HOLD_MS = 800;
 // ---- boot ---------------------------------------------------------------------------------------
 $('key').value = store.get(KEY_STORE);
 $('key').addEventListener('change', () => { $('key').value = $('key').value.trim(); store.set(KEY_STORE, $('key').value); });
-$('unsupported').hidden = webBluetoothSupported();
+$('unsupported').hidden = HTTP_MODE || webBluetoothSupported();
 $('btnConnect').disabled = !webBluetoothSupported();
+if (HTTP_MODE) {   // straight onto the Jetson; the passphrase box still signs the commands
+  $('btnConnect').hidden = $('btnDemo').hidden = true;
+  attach(new HttpLink(''), 'Jetson over its hotspot');
+}
 setInterval(render, 500); // keeps the stale banner honest when no status arrives to trigger a render
 $('build').textContent = BUILD; log('console build ' + BUILD);
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
