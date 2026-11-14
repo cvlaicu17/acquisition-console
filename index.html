@@ -31,6 +31,10 @@
     <label class="field">Passphrase (kept on this phone only)
       <input id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="set on the Jetson gateway">
     </label>
+    <div class="row" id="keyRow" hidden>
+      <button id="btnKey" class="primary small">Use passphrase</button>
+      <span id="keyState" class="small dim"></span>
+    </div>
     <div id="host" class="dim small"></div>
   </section>
 

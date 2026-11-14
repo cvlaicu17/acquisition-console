@@ -10,7 +10,7 @@ const HTTP_MODE = document.querySelector('meta[name="lee-transport"]')?.content 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = '3f3d813';   // publish_pages.sh writes the source commit here
+const BUILD = '9d15f9c';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -348,11 +348,24 @@ const HOLD_MS = 800;
 
 // ---- boot ---------------------------------------------------------------------------------------
 $('key').value = store.get(KEY_STORE);
+// The hotspot page connects by itself; this saves the passphrase on the phone and proves it with a signed ping.
+async function useKey() {
+  const k = $('key').value.trim(); $('key').value = k; store.set(KEY_STORE, k);
+  if (!k) { $('keyState').textContent = 'type the passphrase first'; $('keyState').className = 'small bad'; return; }
+  $('keyState').textContent = 'checking…'; $('keyState').className = 'small dim';
+  const r = await send({ c: 'ping' });
+  const ok = r?.ok === true;
+  $('keyState').textContent = ok ? 'passphrase OK, saved on this phone' : r?.err === 'auth' ? 'wrong passphrase' : 'no answer from the Jetson';
+  $('keyState').className = 'small ' + (ok ? 'ok' : 'bad');
+}
+$('btnKey').onclick = useKey;
+$('key').addEventListener('keydown', (e) => { if (e.key === 'Enter' && HTTP_MODE) { e.preventDefault(); useKey(); } });
 $('key').addEventListener('change', () => { $('key').value = $('key').value.trim(); store.set(KEY_STORE, $('key').value); });
 $('unsupported').hidden = HTTP_MODE || webBluetoothSupported();
 $('btnConnect').disabled = !webBluetoothSupported();
 if (HTTP_MODE) {   // straight onto the Jetson; the passphrase box still signs the commands
-  $('btnConnect').hidden = $('btnDemo').hidden = true;
+  $('btnConnect').hidden = $('btnDemo').hidden = true; $('keyRow').hidden = false;
+  $('keyState').textContent = $('key').value ? 'saved on this phone' : 'type it once, then Use passphrase';
   attach(new HttpLink(''), 'Jetson over its hotspot');
 }
 setInterval(render, 500); // keeps the stale banner honest when no status arrives to trigger a render
