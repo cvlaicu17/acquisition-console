@@ -114,7 +114,7 @@ async function attach(link, name) {
     if (e.ev === 'hello') { fillPresets(e.presets || []); $('host').textContent = `${e.name || ''}  (${e.host || ''})  fw ${e.fw || '?'}`; $('conn').textContent = demo ? 'demo' : (e.name || 'connected'); log('hello from ' + (e.host || '?') + (e.net ? ' ' + e.net.filter((n) => n[2]).map((n) => n[1]).join(' ') : '')); }
     else if (e.ev) log('event ' + JSON.stringify(e));
   });
-  client.on('disconnect', () => { log('link lost'); detach(); });
+  client.on('disconnect', () => { log(userDisconnect ? 'disconnected' : 'link lost'); userDisconnect = false; detach(); });
   $('conn').textContent = demo ? 'demo' : 'connected'; $('conn').className = 'pill ' + (demo ? 'demo' : 'on');
   log('connected to ' + name);
   requestWake();
@@ -134,7 +134,8 @@ $('btnConnect').onclick = async () => {
   try { const link = await connectBle(); await attach(link, link.name); }
   catch (e) { if (e.name !== 'NotFoundError') log('connect failed: ' + e.message); setMsg(e.message, true); }
 };
-$('btnDisconnect').onclick = () => { client?.close(); };
+let userDisconnect = false;
+$('btnDisconnect').onclick = () => { userDisconnect = true; client?.close(); };
 $('btnDemo').onclick = () => startDemo();
 function startDemo() {
   demo = true; sim = new SimLink({ tickMs: Number(q.get('tick')) || 1000 });

@@ -14,14 +14,14 @@ export async function connectBle() {
   return link;
 }
 
-class WebBleLink {
+export class WebBleLink {
   constructor(device) {
     this.device = device; this.chunkSize = 100; // phone -> server writes; long writes are handled by the stack
     this.cb = { status: [], event: [], disconnect: [] };
-    this.userClosed = false;
+    this.userClosed = false; this.ended = false;
     device.addEventListener('gattserverdisconnected', () => {
-      if (this.userClosed) return;
-      this.reconnect().catch(() => this.cb.disconnect.forEach((f) => f()));
+      if (this.userClosed) { this.end(); return; }   // Disconnect button: no reconnect, but tell the page
+      this.reconnect().catch(() => this.end());
     });
   }
   async open() {
@@ -55,6 +55,13 @@ class WebBleLink {
   onStatusChunk(f) { this.cb.status.push(f); }
   onEventChunk(f) { this.cb.event.push(f); }
   onDisconnect(f) { this.cb.disconnect.push(f); }
-  close() { this.userClosed = true; if (this.device.gatt.connected) this.device.gatt.disconnect(); }
+  // The page learns about every end of the link exactly once, whoever ended it. (Before 2026-11-14 a
+  // user close never reached it: the page kept showing Disconnect and a NO DATA banner.)
+  end() { if (this.ended) return; this.ended = true; this.cb.disconnect.forEach((f) => f()); }
+  close() {
+    this.userClosed = true;
+    if (this.device.gatt.connected) this.device.gatt.disconnect();   // -> gattserverdisconnected -> end()
+    this.end();   // also when the link was already gone, or the browser fires no event for our own disconnect
+  }
   get name() { return this.device.name || 'LEE'; }
 }
