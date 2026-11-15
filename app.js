@@ -10,7 +10,7 @@ const HTTP_MODE = document.querySelector('meta[name="lee-transport"]')?.content 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = 'd9267ce';   // publish_pages.sh writes the source commit here
+const BUILD = '4226e01';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -46,10 +46,21 @@ function renderLive() {
   $('cams').hidden = !(HTTP_MODE && on);
   ['cam0', 'cam1'].forEach((c) => {
     const img = document.querySelector(`#${c} img`), want = show ? `http://${location.hostname}:${lv.port}/${c}.mjpg` : '';
-    if (want && img.dataset.src !== want) { img.dataset.src = want; img.src = want; }
-    if (!want && img.dataset.src) { img.dataset.src = ''; img.removeAttribute('src'); }   // closes the stream
+    if (want && img.dataset.src !== want) { img.dataset.src = want; openStream(img); }
+    if (!want && img.dataset.src) { img.dataset.src = ''; clearTimeout(img.retry); img.removeAttribute('src'); }   // closes the stream
   });
 }
+// A stream that does not open (the server is not up yet, the Wi-Fi blinked) or breaks later is opened again:
+// an <img> does not retry by itself, the picture would stay empty until the page is reloaded.
+function openStream(img) {
+  clearTimeout(img.retry);
+  const want = img.dataset.src; if (!want) return;
+  img.tries = (img.tries || 0) + 1;
+  img.src = `${want}?n=${img.tries}`;                                         // a new URL: no cached failure
+  img.retry = setTimeout(() => { if (img.dataset.src === want && !img.naturalWidth) openStream(img); }, 6000);   // opened, no picture
+}
+for (const img of document.querySelectorAll('.cam img'))
+  img.onerror = () => { clearTimeout(img.retry); if (img.dataset.src) img.retry = setTimeout(() => openStream(img), 1000); };
 $('btnLive').onclick = () => send({ c: 'live', on: !['active', 'activating'].includes(status?.live?.state) }, 20000);
 for (const cam of document.querySelectorAll('.cam')) {
   const toggle = () => { cam.classList.toggle('max'); document.body.classList.toggle('noscroll', !!document.querySelector('.cam.max')); };

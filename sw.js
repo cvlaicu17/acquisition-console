@@ -1,6 +1,6 @@
 // Offline shell: after one online visit the page opens with no cell coverage (the usual field case).
 // Bump VERSION on every release so phones pick up the new files.
-const VERSION = 'lee-console-d9267ce';
+const VERSION = 'lee-console-4226e01';
 const FILES = ['./', 'index.html', 'app.js', 'client.js', 'protocol.js', 'webble.js', 'sim.js', 'style.css', 'icon.svg', 'manifest.webmanifest'];
 // cache: 'reload' / 'no-cache': GitHub Pages lets browsers reuse files for 10 min (max-age=600), so a plain
 // fetch here could return the previous release right after publishing (2026-11-14: the Disconnect fix
