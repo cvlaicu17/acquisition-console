@@ -41,15 +41,18 @@ export class SimLink {
   }
   bagsMsg() { return { bags: this.bags.map((b) => b.slice()), more: 0, free_gb: 285.2 }; }
   pushBags() { if (!this.closed) this.event({ ev: 'bags', ...this.bagsMsg() }); }
-  syncBag(b) {   // phases like the gateway: compress -> upload (pct) -> verify -> synced
+  syncBag(b) {   // phases like the gateway: compress -> upload (pct) -> verify -> synced, then the next queued bag
     b[2] = 'syncing'; b[3] = 0; b[4] = 'compress'; this.pushBags();
+    const next = () => { const q = this.bags.findLast((x) => x[2] === 'queued'); if (q) this.syncBag(q); else this.pushBags(); };
     const step = () => {
       if (this.closed) return;
-      if (this.state !== 'idle') { b[2] = 'local'; b[3] = 0; b[4] = 'cancelled: recording started'; return this.pushBags(); }
+      const why = this.state !== 'idle' ? 'recording started' : this.syncStop ? 'stopped' : '';
+      if (why) { for (const x of this.bags) if (x[2] === 'queued') x[2] = 'local';
+        this.syncStop = false; b[2] = 'local'; b[3] = 0; b[4] = 'cancelled: ' + why; return this.pushBags(); }
       if (b[4] === 'compress') { b[4] = 'upload'; }
       else if (b[4] === 'upload' && b[3] < 100) { b[3] = Math.min(100, b[3] + 25); }
       else if (b[4] === 'upload') { b[4] = 'verify'; }
-      else { b[2] = 'synced'; b[3] = 100; b[4] = ''; return this.pushBags(); }
+      else { b[2] = 'synced'; b[3] = 100; b[4] = ''; return next(); }
       this.pushBags(); setTimeout(step, 300);
     };
     setTimeout(step, 300);
@@ -114,6 +117,15 @@ export class SimLink {
       case 'hotspot_password':
         return sealSecret(this.pass, nonce, this.hotspotPw).then((sec) => ({ ok: true, re: 'hotspot_password', ssid: 'LEE-SIM', sec }));
       case 'sync': {
+        const running = this.bags.some((x) => x[2] === 'syncing');
+        if (cmd.stop) { if (!running) return { ok: false, re: 'sync', err: 'nothing' }; this.syncStop = true; return { ok: true, re: 'sync' }; }
+        if (cmd.all) {   // every local bag, oldest first (the list is newest first)
+          if (this.state !== 'idle' || running) return { ok: false, re: 'sync', err: 'busy' };
+          const todo = this.bags.filter((x) => x[2] === 'local');
+          if (!todo.length) return { ok: false, re: 'sync', err: 'nothing' };
+          for (const x of todo) { x[2] = 'queued'; x[4] = ''; }
+          this.syncBag(todo.at(-1)); return { ok: true, re: 'sync' };
+        }
         const b = this.bags.find((x) => x[0] === cmd.bag);
         if (!b) return { ok: false, re: 'sync', err: 'bad_arg' };
         if (this.state !== 'idle' || this.bags.some((x) => x[2] === 'syncing')) return { ok: false, re: 'sync', err: 'busy' };
@@ -124,7 +136,8 @@ export class SimLink {
         const i = this.bags.findIndex((x) => x[0] === cmd.bag);
         if (i < 0) return { ok: false, re: 'delete', err: 'bad_arg' };
         if (this.state !== 'idle') return { ok: false, re: 'delete', err: 'busy' };
-        if (this.bags[i][2] !== 'synced') return { ok: false, re: 'delete', err: 'not_synced' };
+        if (this.bags[i][2] === 'syncing') return { ok: false, re: 'delete', err: 'syncing' };
+        if (this.bags[i][2] !== 'synced' && cmd.force !== true) return { ok: false, re: 'delete', err: 'not_synced' };
         this.bags.splice(i, 1); setTimeout(() => this.pushBags(), 10); return { ok: true, re: 'delete', bag: cmd.bag };
       }
       default: return { ok: false, err: 'bad_cmd' };

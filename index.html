@@ -123,8 +123,9 @@
 
   <section class="card" id="bagsCard">
     <h2>Bags on the Jetson <span id="bagsInfo" class="dim"></span></h2>
+    <button id="btnSyncAll" class="ghost" hidden>Sync all</button>
     <div id="bags" class="small dim">connect to see the bags</div>
-    <div class="dim small">Sync uploads a bag to the vault (never while recording). Delete is possible only once the vault has it.</div>
+    <div class="dim small">Sync uploads a bag to the vault (never while recording); a bag the vault already has is not uploaded again. Sync all takes them one after another. Delete asks twice for a bag that is not in the vault.</div>
   </section>
 
   <section class="card">

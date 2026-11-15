@@ -10,7 +10,7 @@ const HTTP_MODE = document.querySelector('meta[name="lee-transport"]')?.content 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = 'babdbdc';   // publish_pages.sh writes the source commit here
+const BUILD = 'd9267ce';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -146,16 +146,21 @@ $('btnWifiOff').onclick = () => { if (confirm('Disconnect the Jetson from Wi-Fi?
 // ---- bags ----------------------------------------------------------------------------------------
 const gb = (mb) => (mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : mb + ' MB');
 const BAG_STATE = {
-  local: ['on the Jetson only', ''], synced: ['in the vault ✓', 'ok'], syncing: ['syncing', 'wr'],
+  local: ['on the Jetson only', ''], synced: ['in the vault ✓', 'ok'], syncing: ['syncing', 'wr'], queued: ['queued for sync', 'wr'],
   recording: ['recording', 'wr'], split: ['split recording: cannot sync', 'dim'], unfinished: ['unfinished: cannot sync', 'er'],
 };
 function renderBags() {
   const box = $('bags'); box.textContent = '';
   $('bagsInfo').textContent = bags ? `${bags.bags.length + (bags.more || 0)} · ${Number(bags.free_gb).toFixed(0)} GB free` : '';
-  if (!client || !bags) { box.textContent = client ? 'loading…' : 'connect to see the bags'; return; }
-  if (!bags.bags.length) { box.textContent = 'no bags in ~/bags'; return; }
+  const all = $('btnSyncAll');
+  if (!client || !bags) { box.textContent = client ? 'loading…' : 'connect to see the bags'; all.hidden = true; return; }
+  if (!bags.bags.length) { box.textContent = 'no bags in ~/bags'; all.hidden = true; return; }
   const liveOn = ['active', 'activating'].includes(status?.live?.state);   // preview runs the cameras: no sync then
   const idle = status && status.state === 'idle' && !liveOn, syncing = bags.bags.some((b) => b[2] === 'syncing');
+  const nLocal = bags.bags.filter((b) => b[2] === 'local').length;       // one button: sync all <-> stop the sync
+  all.hidden = false; all.textContent = syncing ? 'Stop sync' : nLocal ? `Sync all (${nLocal}${bags.more ? '+' : ''})` : 'Sync all';
+  all.disabled = busy || (!syncing && !(idle && (nLocal || bags.more)));
+  all.onclick = () => send(syncing ? { c: 'sync', stop: true } : { c: 'sync', all: true });
   for (const [name, mb, st, pct, note] of bags.bags) {
     const row = document.createElement('div'); row.className = 'bagrow';
     const info = document.createElement('div'); info.className = 'bi';
@@ -171,11 +176,21 @@ function renderBags() {
     bSync.disabled = !(st === 'local' && idle && !syncing && !busy);
     bSync.onclick = () => send({ c: 'sync', bag: name });
     const bDel = document.createElement('button'); bDel.className = 'ghost'; bDel.textContent = 'Delete';
-    bDel.disabled = !(st === 'synced' && !busy);
-    bDel.onclick = () => { if (confirm(`Delete ${name} (${gb(mb)}) from the Jetson?\n\nThe vault keeps its copy.`)) send({ c: 'delete', bag: name }, 60000); };
+    bDel.disabled = busy || st === 'syncing' || st === 'recording' || !(status && status.state === 'idle');
+    bDel.onclick = () => deleteBag(name, mb, st);
     row.append(info, bSync, bDel); box.append(row);
   }
   if (bags.more) { const m = document.createElement('div'); m.className = 'dim small'; m.textContent = `+ ${bags.more} older`; box.append(m); }
+}
+// A bag the vault holds is deleted after the gateway asked the vault again. Any other bag is the only copy:
+// a second, explicit question, then `force`.
+const GONE = (name, mb, why) => `${name} (${gb(mb)}) is NOT in the vault${why}.\n\nDelete it anyway? This recording will be gone for good.`;
+async function deleteBag(name, mb, st) {
+  if (st !== 'synced') { if (confirm(GONE(name, mb, ''))) await send({ c: 'delete', bag: name, force: true }, 60000); return; }
+  if (!confirm(`Delete ${name} (${gb(mb)}) from the Jetson?\n\nThe vault keeps its copy.`)) return;
+  const r = await send({ c: 'delete', bag: name }, 60000);
+  if (r && !r.ok && ['not_in_vault', 'not_synced'].includes(r.err) && confirm(GONE(name, mb, ': the vault did not confirm its copy')))
+    await send({ c: 'delete', bag: name, force: true }, 60000);
 }
 
 function log(s) {
@@ -412,6 +427,7 @@ async function selftest() {
   out(r5?.ok === true && rowText().includes('syncing'), 'sync accepted, row shows syncing');
   await wait(2500);
   out(rowText().includes('in the vault'), 'row shows in the vault after sync');
+  out($('btnSyncAll').textContent.startsWith('Sync all') && $('btnSyncAll').disabled, 'nothing left to sync: Sync all disabled');
   await scanNets(); await wait(200);
   out(document.querySelectorAll('#nets .bagrow').length === 3, 'wifi scan shows 3 networks');
   const hs = await send({ c: 'hotspot', on: true }); if (hs?.ok) hotspotPw = hs.secret || ''; await wait(1300);
