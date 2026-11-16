@@ -10,7 +10,7 @@ const HTTP_MODE = document.querySelector('meta[name="lee-transport"]')?.content 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = '04b2069';   // publish_pages.sh writes the source commit here
+const BUILD = 'fa3eecd';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -423,11 +423,11 @@ async function selftest() {
   await wait(1500);
   out(status?.state === 'idle', 'status arrives, idle');
   out($('preset').options.length === 3, 'presets from hello');
-  const r1 = await send({ c: 'start', preset: 'stereo40', sec: 0 });
+  const r1 = await send({ c: 'start', preset: 'binocular40', sec: 0 });
   out(r1?.ok === true, 'start accepted');
   await wait(4500);
   out(status?.state === 'recording' && status.cam.length === 2, 'recording with 2 cameras');
-  const r2 = await send({ c: 'start', preset: 'stereo40', sec: 0 });
+  const r2 = await send({ c: 'start', preset: 'binocular40', sec: 0 });
   out(r2?.ok === false && r2.err === 'busy', 'second start refused (busy)');
   keyOverride = 'wrong';
   const r3 = await send({ c: 'stop' }); keyOverride = null;

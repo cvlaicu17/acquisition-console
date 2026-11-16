@@ -20,8 +20,8 @@ export class SimLink {
     this.nets = [['SM', 100, 'WPA2', true, true], ['Andrei Wifi', 80, 'WPA2 WPA3', false, false], ['SM_Guest', 70, '', false, false]];
     this.hotspotPw = 'sim-hotspot-pw'; this.lastSecret = null;
     this.presets = [
-      { id: 'stereo40', name: 'Stereo 40 Hz, auto exposure', maxSec: 3600 },
-      { id: 'stereo40f8', name: 'Stereo 40 Hz, fixed 8 ms', maxSec: 3600 },
+      { id: 'binocular40', name: 'Binocular 40 Hz, auto exposure', maxSec: 3600 },
+      { id: 'binocular40f8', name: 'Binocular 40 Hz, fixed 8 ms', maxSec: 3600 },
       { id: 'allan', name: 'Allan variance: IMUs only (keep the rig still)', maxSec: 86400 },
     ];
     this.timer = setInterval(() => this.tick(), tickMs);
