@@ -10,7 +10,7 @@ const HTTP_MODE = document.querySelector('meta[name="lee-transport"]')?.content 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = '4226e01';   // publish_pages.sh writes the source commit here
+const BUILD = '71dcd4d';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -26,18 +26,22 @@ let client = null, sim = null, status = null, lastStatusAt = 0, demo = false, bu
 
 // ---- small helpers ----------------------------------------------------------------------------
 // ---- live view ---------------------------------------------------------------------------------------
-// Over the hotspot page: start/stop the preview (lee-live: cameras without a bag) and show each camera's MJPEG
-// stream from :8091. Over Bluetooth: how to get there. Streams are dropped while the page is hidden.
+// Over the hotspot page: switch the live view on/off - independent of recording - and show each camera's MJPEG
+// stream from :8091. The images come from the recording while one runs, otherwise from lee-live (cameras
+// without a bag). Over Bluetooth: how to get there. Streams are dropped while the page is hidden.
 function renderLive() {
   const lv = status && client ? status.live : null, wf = status && client ? status.wifi : null;
-  const on = !!lv && ['active', 'activating'].includes(lv.state), streaming = on && lv.stream === 'active';
-  const rec = status && status.state !== 'idle';
+  const on = !!lv && ['active', 'activating'].includes(lv.state), up = on && lv.state === 'active';
+  const camsUp = !!lv && (lv.src === 'recording' || lv.cams === 'active');
+  const streaming = up && camsUp;
   $('liveCtl').hidden = !client || demo;
-  $('btnLive').textContent = on ? 'Stop preview' : 'Start preview';
-  $('btnLive').disabled = busy || (!on && rec);
-  $('liveState').textContent = !lv ? '' : on ? (streaming ? 'cameras streaming' : 'starting the cameras…') : (rec ? 'not while recording' : 'off');
+  $('btnLive').textContent = on ? 'Stop live view' : 'Start live view';
+  $('btnLive').disabled = busy;
+  $('liveState').textContent = !lv ? '' : !on ? 'off'
+    : lv.src === 'recording' ? (up ? 'showing the recording' : 'starting…')
+    : streaming ? 'cameras streaming (no bag)' : 'starting the cameras…';
   const hint = $('liveHint');
-  if (HTTP_MODE) hint.textContent = 'Preview runs the cameras without recording. Stop it before you record.';
+  if (HTTP_MODE) hint.textContent = 'Live view works with or without a recording. Off by default: it costs the recorder nothing then.';
   else if (wf && wf.mode === 'hotspot') {
     hint.textContent = ''; hint.append('Join the Wi-Fi ' + wf.ssid + ', then open ');
     const a = document.createElement('a'); a.href = `http://${wf.ip || '10.42.0.1'}/`; a.textContent = a.href; hint.append(a, ' for the camera images.');
@@ -166,8 +170,8 @@ function renderBags() {
   const all = $('btnSyncAll');
   if (!client || !bags) { box.textContent = client ? 'loading…' : 'connect to see the bags'; all.hidden = true; return; }
   if (!bags.bags.length) { box.textContent = 'no bags in ~/bags'; all.hidden = true; return; }
-  const liveOn = ['active', 'activating'].includes(status?.live?.state);   // preview runs the cameras: no sync then
-  const idle = status && status.state === 'idle' && !liveOn, syncing = bags.bags.some((b) => b[2] === 'syncing');
+  const camsOn = status?.live?.src === 'preview';                          // lee-live runs the cameras: no sync then
+  const idle = status && status.state === 'idle' && !camsOn, syncing = bags.bags.some((b) => b[2] === 'syncing');
   const nLocal = bags.bags.filter((b) => b[2] === 'local').length;       // one button: sync all <-> stop the sync
   all.hidden = false; all.textContent = syncing ? 'Stop sync' : nLocal ? `Sync all (${nLocal}${bags.more ? '+' : ''})` : 'Sync all';
   all.disabled = busy || (!syncing && !(idle && (nLocal || bags.more)));
