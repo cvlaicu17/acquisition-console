@@ -10,7 +10,7 @@ const HTTP_MODE = document.querySelector('meta[name="lee-transport"]')?.content 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const KEY_STORE = 'lee.passphrase';
-const BUILD = '71dcd4d';   // publish_pages.sh writes the source commit here
+const BUILD = '04b2069';   // publish_pages.sh writes the source commit here
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: page still works */ } },
@@ -26,22 +26,22 @@ let client = null, sim = null, status = null, lastStatusAt = 0, demo = false, bu
 
 // ---- small helpers ----------------------------------------------------------------------------
 // ---- live view ---------------------------------------------------------------------------------------
-// Over the hotspot page: switch the live view on/off - independent of recording - and show each camera's MJPEG
-// stream from :8091. The images come from the recording while one runs, otherwise from lee-live (cameras
-// without a bag). Over Bluetooth: how to get there. Streams are dropped while the page is hidden.
+// Over the hotspot page: start/stop the live view (lee-live: cameras without a bag; not while recording) and
+// show each camera's MJPEG stream from :8091. The calibration preset streams its own recording here too.
+// Over Bluetooth: how to get there. Streams are dropped while the page is hidden.
 function renderLive() {
   const lv = status && client ? status.live : null, wf = status && client ? status.wifi : null;
   const on = !!lv && ['active', 'activating'].includes(lv.state), up = on && lv.state === 'active';
-  const camsUp = !!lv && (lv.src === 'recording' || lv.cams === 'active');
-  const streaming = up && camsUp;
+  const streaming = up && (lv.src === 'recording' || lv.cams === 'active');
+  const rec = status && status.state !== 'idle';
   $('liveCtl').hidden = !client || demo;
   $('btnLive').textContent = on ? 'Stop live view' : 'Start live view';
-  $('btnLive').disabled = busy;
-  $('liveState').textContent = !lv ? '' : !on ? 'off'
-    : lv.src === 'recording' ? (up ? 'showing the recording' : 'starting…')
+  $('btnLive').disabled = busy || (!on && rec);
+  $('liveState').textContent = !lv ? '' : !on ? (rec ? 'not while recording' : 'off')
+    : lv.src === 'recording' ? (up ? 'showing the calibration recording' : 'starting…')
     : streaming ? 'cameras streaming (no bag)' : 'starting the cameras…';
   const hint = $('liveHint');
-  if (HTTP_MODE) hint.textContent = 'Live view works with or without a recording. Off by default: it costs the recorder nothing then.';
+  if (HTTP_MODE) hint.textContent = 'Live view runs the cameras without recording; starting a recording stops it. The Calibration preset shows its recording here.';
   else if (wf && wf.mode === 'hotspot') {
     hint.textContent = ''; hint.append('Join the Wi-Fi ' + wf.ssid + ', then open ');
     const a = document.createElement('a'); a.href = `http://${wf.ip || '10.42.0.1'}/`; a.textContent = a.href; hint.append(a, ' for the camera images.');
